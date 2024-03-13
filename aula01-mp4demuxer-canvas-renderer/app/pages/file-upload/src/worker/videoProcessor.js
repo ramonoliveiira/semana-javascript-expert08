@@ -10,7 +10,7 @@ export default class VideoProcessor {
   }
 
   /** @returns {ReadableStream} */
-  mp4Decoder(encoderConfig, stream) {
+  mp4Decoder(stream) {
     return new ReadableStream({
       start: async (controller) => {
         const decoder = new VideoDecoder({
@@ -26,7 +26,18 @@ export default class VideoProcessor {
 
         return this.#mp4Demuxer
           .run(stream, {
-            onConfig(config) {
+            async onConfig(config) {
+              const { supported } = await VideoDecoder.isConfigSupported(
+                config
+              );
+              if (!supported) {
+                console.error(
+                  "mp4Muxer VideoDecoder config not supported!",
+                  config
+                );
+                controller.close();
+                return;
+              }
               decoder.configure(config);
             },
             /** @param {EncodedVideoChunk} chunk  */
@@ -44,10 +55,40 @@ export default class VideoProcessor {
     });
   }
 
+  encode144p(encoderConfig) {
+    let _encoder;
+    const readable = new ReadableStream({
+      start: async (controller) => {
+        const { supported } = await VideoEncoder.isConfigSupported(
+          encoderConfig
+        );
+        if (!supported) {
+          const message = "encode144p VideoEncoder config not supported!";
+          console.error(message, encoderConfig);
+          controller.error(message);
+          return;
+        }
+
+        _encoder = new VideoEncoder({
+          output: (chunk, config) => {
+            debugger;
+          },
+          error: (err) => {
+            console.error("VideoEncoder 144p", err);
+            controller.error(err);
+          },
+        });
+      },
+    });
+    const writable = new WritableStream({
+      async write(frame) {},
+    });
+  }
+
   async start({ file, encoderConfig, renderFrame }) {
     const stream = file.stream();
     const fileName = file.name.split("/").pop().replace(".mp4", "");
-    return this.mp4Decoder(encoderConfig, stream).pipeTo(
+    return this.mp4Decoder(stream).pipeTo(
       new WritableStream({
         write(frame) {
           renderFrame(frame);
